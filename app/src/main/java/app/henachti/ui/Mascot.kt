@@ -31,7 +31,7 @@ fun SunMascot(mood: SunMood, modifier: Modifier = Modifier, hill: Color? = Palet
         val h = size.height
         val r = min(w, h) * 0.30f
         val c = Offset(w / 2f, h * 0.56f)
-        if (mood == SunMood.NIGHT) moon(c, r) else sun(c, r, mood)
+        if (mood == SunMood.NIGHT) drawMoonFace(c, r) else drawSunFace(c, r, mood)
         if (hill != null) {
             drawOval(hill, topLeft = Offset(-w * 0.12f, h * 0.80f), size = Size(w * 1.24f, h * 0.70f))
         }
@@ -40,7 +40,7 @@ fun SunMascot(mood: SunMood, modifier: Modifier = Modifier, hill: Color? = Palet
 
 private val Face = Color(0xFF1D1B19)
 
-private fun DrawScope.sun(c: Offset, r: Float, mood: SunMood) {
+internal fun DrawScope.drawSunFace(c: Offset, r: Float, mood: SunMood) {
     // rays: up, the two diagonals, left and right
     val ray = r * 0.15f
     for (deg in listOf(-90.0, -135.0, -45.0, 180.0, 0.0)) {
@@ -115,7 +115,7 @@ private fun DrawScope.sun(c: Offset, r: Float, mood: SunMood) {
 }
 
 /** A sleeping crescent moon for the night. */
-private fun DrawScope.moon(c: Offset, r: Float) {
+internal fun DrawScope.drawMoonFace(c: Offset, r: Float, stars: Boolean = true) {
     val disc = Path().apply { addOval(androidx.compose.ui.geometry.Rect(c, r)) }
     val bite = Path().apply { addOval(androidx.compose.ui.geometry.Rect(Offset(c.x - r * 0.55f, c.y - r * 0.30f), r * 0.86f)) }
     val crescent = Path().apply { op(disc, bite, PathOperation.Difference) }
@@ -133,7 +133,8 @@ private fun DrawScope.moon(c: Offset, r: Float) {
         topLeft = Offset(ex - r * 0.10f, ey + r * 0.20f), size = Size(r * 0.22f, r * 0.16f),
         style = Stroke(width = r * 0.07f, cap = StrokeCap.Round),
     )
-    // two small stars
-    drawCircle(Palette.GoldSoft, r * 0.06f, Offset(c.x - r * 1.15f, c.y - r * 0.85f))
-    drawCircle(Palette.GoldSoft, r * 0.04f, Offset(c.x + r * 1.20f, c.y - r * 1.05f))
+    if (stars) {
+        drawCircle(Palette.GoldSoft, r * 0.06f, Offset(c.x - r * 1.15f, c.y - r * 0.85f))
+        drawCircle(Palette.GoldSoft, r * 0.04f, Offset(c.x + r * 1.20f, c.y - r * 1.05f))
+    }
 }

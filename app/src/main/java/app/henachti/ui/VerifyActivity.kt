@@ -91,7 +91,8 @@ private val CamSheet = Color(0xFF211E1B)
 private val CamPill = Color(0xFF34302C)
 private val CamTrack = Color(0xFF4A4540)
 private val CamGrey = Color(0xFFB9B2A8)
-private val CamBlue = Color(0xFF5B9CF2)
+// the app's gold for progress and markers
+private val CamBlue = Color(0xFFC9A75C)
 
 private val TIPS = listOf(
     "קרב את הטלפון עד שהאמה ממלאת את המסגרת.",

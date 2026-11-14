@@ -39,11 +39,11 @@ fun phaseColors(phase: DayPhase): List<Color> = when (phase) {
  * sun itself. Before misheyakir a hollow ring waits on the right; after sunset it rests on the left.
  */
 @Composable
-fun SkyArc(start: Long, end: Long, now: Long, modifier: Modifier = Modifier) {
+fun SkyArc(start: Long, end: Long, now: Long, modifier: Modifier = Modifier, mood: SunMood = SunMood.WAITING) {
     val span = (end - start).coerceAtLeast(1L)
     val fraction = ((now - start).toFloat() / span).coerceIn(0f, 1f)
     Canvas(modifier) {
-        val sun = 9.dp.toPx()
+        val sun = 13.dp.toPx() // margin unit: leaves room for the sun's rays at the ends and the top
         val cx = size.width / 2f
         val cy = size.height - 4.dp.toPx()
         val rx = size.width / 2f - sun * 1.6f
@@ -87,19 +87,13 @@ fun SkyArc(start: Long, end: Long, now: Long, modifier: Modifier = Modifier) {
                 style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
             )
         }
+        // the sun itself, with the face of the day's state; before dawn and after sunset a sleeping moon
         val p = at(fraction)
-        if (fraction > 0f && fraction < 1f) {
-            drawCircle(
-                Brush.radialGradient(
-                    listOf(Palette.Gold.copy(alpha = 0.38f), Color.Transparent),
-                    center = p, radius = sun * 3.2f,
-                ),
-                sun * 3.2f, p,
-            )
-            drawCircle(Palette.Gold, sun, p)
-            drawCircle(Palette.GoldSoft, sun * 0.45f, p)
+        val face = 15.dp.toPx()
+        if (mood == SunMood.NIGHT || fraction <= 0f || fraction >= 1f) {
+            drawMoonFace(p, face * 0.95f, stars = false)
         } else {
-            drawCircle(Palette.Gold, sun * 0.8f, p, style = Stroke(width = 2.dp.toPx()))
+            drawSunFace(p, face, mood)
         }
     }
 }

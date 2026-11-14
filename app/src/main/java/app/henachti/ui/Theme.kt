@@ -20,34 +20,35 @@ import androidx.compose.ui.unit.sp
 import app.henachti.R
 
 /**
- * Playful and calm (inspired by the EON shot Adam saved on Dribbble): a cream page, a few strong
- * flat colours, a yellow sun. The old names stay so every screen picks up the new colours:
- * Chocolate is now the deep teal, Gold the sun yellow, GoldDeep/GoldText the wine red.
+ * Warm Beige & Soft Gold: cream paper, chocolate panels, soft gold accents (Adam asked to keep these).
+ * The newer names (Teal, Wine, Coral, Blush, Lime, Sun) map onto the same family, so the newer
+ * screens stay in these colours.
  */
 object Palette {
-    val Cream = Color(0xFFFBF6E9)
-    val CreamDeep = Color(0xFFF4EDDC)
-    val Sand = Color(0xFFE5DCC6)
-    val Chocolate = Color(0xFF0E4744)       // deep teal: dark panels, secondary pills, arches
-    val ChocolateDeep = Color(0xFF0A3432)
-    val Gold = Color(0xFFFFC94A)            // the sun: dots, rings, highlights
-    val GoldSoft = Color(0xFFFFE08A)
-    val GoldDeep = Color(0xFF7A0E2C)        // wine: icons and large numerals on cream
-    /** Wine for text on cream: well above 7:1. */
-    val GoldText = Color(0xFF7A0E2C)
-    val Ink = Color(0xFF1D1B19)
-    val InkSoft = Color(0xFF4A453F)
-    val Muted = Color(0xFF66605A)            // 5.6:1 on Cream
-    val Success = Color(0xFF2F7D5B)
-    val Danger = Color(0xFFB3261E)
+    val Cream = Color(0xFFF6F0E6)
+    val CreamDeep = Color(0xFFEEE5D5)
+    val Sand = Color(0xFFE2D7C3)
+    val Chocolate = Color(0xFF2B2219)
+    val ChocolateDeep = Color(0xFF1C1612)
+    val Gold = Color(0xFFC9A75C)
+    val GoldSoft = Color(0xFFE2CC8E)
+    val GoldDeep = Color(0xFFA8863F)
+    /** Gold for text on cream: 4.9:1. GoldDeep stays for icons, lines and large numerals. */
+    val GoldText = Color(0xFF7F6429)
+    val Ink = Color(0xFF2A2420)
+    val InkSoft = Color(0xFF5B5248)
+    // 5:1 on Cream, 4.6:1 on CreamDeep
+    val Muted = Color(0xFF6E6458)
+    val Success = Color(0xFF3E8E5E)
+    val Danger = Color(0xFF9B3B2E)
 
-    // the playful set
+    // newer names, same family
     val Teal = Chocolate
-    val TealSoft = Color(0xFF165E59)
-    val Wine = GoldDeep
-    val Coral = Color(0xFFF2542D)
-    val Blush = Color(0xFFF9C9D9)
-    val Lime = Color(0xFFD6E09C)
+    val TealSoft = Color(0xFF3D3126)
+    val Wine = ChocolateDeep
+    val Coral = Color(0xFF8C6D2C)            // deep gold that carries cream text (4.6:1)
+    val Blush = CreamDeep
+    val Lime = Sand
     val Sun = Gold
 
     // names used by older screens

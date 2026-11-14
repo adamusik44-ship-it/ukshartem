@@ -189,15 +189,15 @@ fun DarkButton(
 fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) =
     DarkButton(text, onClick, modifier, enabled)
 
-/** The main action: a dark ink pill. On dark or coloured screens pass light colours. */
+/** The main action: a flat gold pill. On dark screens it reads as is; pass other colours only when needed. */
 @Composable
 fun GoldButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    background: Color = Palette.Ink,
-    content: Color = Palette.Cream,
+    background: Color = Palette.Gold,
+    content: Color = Palette.ChocolateDeep,
 ) {
     Box(
         modifier
@@ -413,7 +413,7 @@ fun BottomNav(current: String?, onSelect: (Tab) -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(percent = 50))
-                .background(Color.White)
+                .background(Palette.CreamDeep)
                 .border(1.dp, Palette.Sand, RoundedCornerShape(percent = 50))
                 .padding(vertical = 4.dp),
         ) {
@@ -427,7 +427,7 @@ fun BottomNav(current: String?, onSelect: (Tab) -> Unit) {
 
 @Composable
 private fun NavItem(tab: Tab, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val tint = if (on) Palette.Ink else Palette.Muted
+    val tint = if (on) Palette.GoldDeep else Palette.Muted
     Column(
         modifier
             .clip(RoundedCornerShape(12.dp))

@@ -109,6 +109,9 @@ class DayPolicy(private val context: Context) {
     fun misheyakir(date: LocalDate): Long =
         zmanim(date).misheyakir10Point2Degrees?.time ?: fallback(date, LocalTime.of(5, 0))
 
+    fun sunrise(date: LocalDate): Long =
+        zmanim(date).sunrise?.time ?: fallback(date, LocalTime.of(6, 0))
+
     fun sunset(date: LocalDate): Long =
         zmanim(date).sunset?.time ?: fallback(date, LocalTime.of(18, 0))
 
@@ -151,7 +154,7 @@ class DayPolicy(private val context: Context) {
     fun greeting(now: Long = System.currentTimeMillis()): String {
         val hour = Instant.ofEpochMilli(now).atZone(IsraelTime.zone).hour
         return when (hour) {
-            in 5..11 -> "בוקר אור"
+            in 5..11 -> "בוקר טוב"
             in 12..16 -> "צהריים טובים"
             in 17..21 -> "ערב טוב"
             else -> "לילה טוב"
