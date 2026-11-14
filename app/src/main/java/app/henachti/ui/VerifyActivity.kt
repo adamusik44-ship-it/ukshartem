@@ -9,9 +9,12 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -21,6 +24,8 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,10 +35,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,12 +68,15 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import app.henachti.R
 import app.henachti.data.Prefs
 import app.henachti.domain.DayPolicy
 import app.henachti.service.BlockerService
@@ -70,6 +85,13 @@ import app.henachti.widget.StatusWidget
 import kotlinx.coroutines.delay
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+
+private val CamDark = Color(0xFF181512)
+private val CamSheet = Color(0xFF211E1B)
+private val CamPill = Color(0xFF34302C)
+private val CamTrack = Color(0xFF4A4540)
+private val CamGrey = Color(0xFFB9B2A8)
+private val CamBlue = Color(0xFF5B9CF2)
 
 private val TIPS = listOf(
     "קרב את הטלפון עד שהאמה ממלאת את המסגרת.",
@@ -94,6 +116,8 @@ class VerifyActivity : ComponentActivity() {
     private val phase = mutableStateOf<Phase>(Phase.Scanning)
     private val recent = ArrayDeque<Boolean>()
     private val recentBands = ArrayDeque<Int>()
+    private val torchOn = mutableStateOf(false)
+    private val cameraRef = mutableStateOf<Camera?>(null)
     private var bestShown = 0
     private var lastAnalysedAt = 0L
     private val analysisExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -106,6 +130,11 @@ class VerifyActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // a dark full-screen camera: draw under the bars, with light icons on them
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         prefs = Prefs.get(this)
         policy = DayPolicy(this)
 
@@ -189,6 +218,11 @@ class VerifyActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Full-screen camera, dark: a close button and a torch on top with one line of instruction,
+     * a rounded frame with seven numbered markers that fill as windings are seen, and a bottom
+     * sheet with a seven-step bar, the count, one hint and the two actions.
+     */
     @Composable
     private fun VerifyScreen(
         hasPermission: Boolean,
@@ -196,6 +230,8 @@ class VerifyActivity : ComponentActivity() {
         onRequestPermission: () -> Unit,
     ) {
         var facing by lensFacing
+        var torch by torchOn
+        val camera = cameraRef.value
         val bands = liveBands.intValue
         val current = phase.value
         var tip by remember { mutableIntStateOf(-1) }
@@ -210,127 +246,191 @@ class VerifyActivity : ComponentActivity() {
                 delay(4_500)
             }
         }
+        LaunchedEffect(torch, camera) {
+            camera?.let { if (it.cameraInfo.hasFlashUnit()) runCatching { it.cameraControl.enableTorch(torch) } }
+        }
 
-        Column(
+        Box(
             Modifier
                 .fillMaxSize()
-                .systemBarsPadding()
-                .padding(horizontal = 24.dp)
+                .background(CamDark)
         ) {
-            Spacer(Modifier.height(28.dp))
-            Text(
-                "הכנס את האמה עם הכריכות למסגרת.",
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "כל האמה, מהמרפק עד כף היד, לרוחב המסגרת, כך שהרצועות חוצות אותה. " +
-                    "אור טוב, בלי שרוול. האימות קורה לבד.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Palette.InkSoft,
-            )
-            Spacer(Modifier.height(18.dp))
+            if (hasPermission) {
+                CameraPreview(facing)
+            } else {
+                Column(
+                    Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("צריך גישה למצלמה כדי לאמת.", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onRequestPermission) {
+                        Text("אשר גישה", color = CamBlue, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
 
-            Box(
+            // the frame the detector looks at, with one numbered marker per winding
+            if (hasPermission && current is Phase.Scanning) {
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp)
+                        .fillMaxHeight(0.30f)
+                        .border(2.5.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(28.dp))
+                ) {
+                    if (bands == 0) {
+                        ArmGuide(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(18.dp)
+                        )
+                    }
+                    Row(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 26.dp, vertical = 16.dp)
+                            .clearAndSetSemantics { contentDescription = "זוהו $bands מתוך ${WindingDetector.REQUIRED} כריכות" },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        repeat(WindingDetector.REQUIRED) { i -> Marker(i + 1, i < bands) }
+                    }
+                }
+            }
+
+            // top: close, torch, the instruction
+            Column(
                 Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Palette.Ink)
+                    .background(CamDark.copy(alpha = 0.78f))
+                    .statusBarsPadding()
+                    .padding(start = 8.dp, end = 8.dp, bottom = 16.dp)
             ) {
-                if (hasPermission) {
-                    CameraPreview(facing)
-                    // the guide: where the detector looks, with a dashed forearm to aim at
-                    Box(
-                        Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth(0.88f)
-                            .fillMaxHeight(0.40f)
-                            .border(
-                                3.dp,
-                                if (bands >= WindingDetector.REQUIRED) Palette.Gold else Palette.Paper,
-                                RoundedCornerShape(12.dp)
-                            )
-                    ) {
-                        if (bands == 0) {
-                            ArmGuide(
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(14.dp)
-                            )
-                        }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Filled.Close, contentDescription = "סגירה", tint = Color.White)
                     }
-                    Column(
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        WindingDots(bands)
-                        Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.weight(1f))
+                    val torchUsable = facing == CameraSelector.LENS_FACING_BACK && camera?.cameraInfo?.hasFlashUnit() == true
+                    IconButton(onClick = { torch = !torch }, enabled = torchUsable) {
+                        Icon(
+                            painterResource(R.drawable.ic_flashlight),
+                            contentDescription = if (torch) "כיבוי פנס" else "הדלקת פנס",
+                            tint = when {
+                                !torchUsable -> Color.White.copy(alpha = 0.35f)
+                                torch -> Palette.Sun
+                                else -> Color.White
+                            },
+                        )
+                    }
+                }
+                Text(
+                    "הכנס את האמה עם הכריכות למסגרת.",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                Text(
+                    "מהמרפק עד כף היד. אור טוב, בלי שרוול.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = CamGrey,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+            }
+
+            when (current) {
+                is Phase.Verified -> Overlay(title = "הנחת. יום טוב.", body = current.note, unlocked = true)
+                is Phase.Failed -> Overlay(title = "משהו השתבש.", body = current.message, unlocked = false)
+                Phase.Scanning -> Unit
+            }
+
+            // bottom sheet
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .background(CamSheet)
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 14.dp)
+            ) {
+                when (current) {
+                    Phase.Scanning -> {
+                        Row(Modifier.fillMaxWidth()) {
+                            repeat(WindingDetector.REQUIRED) { i ->
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 3.dp)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(percent = 50))
+                                        .background(if (i < bands) CamBlue else CamTrack)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
                         Text(
-                            text = when {
+                            when {
                                 bands >= WindingDetector.REQUIRED -> "כל ${WindingDetector.REQUIRED} הכריכות. רגע אחד"
                                 bands > 0 -> "רואה $bands מתוך ${WindingDetector.REQUIRED} כריכות"
                                 else -> "לא רואה כריכות עדיין"
                             },
-                            color = Palette.Paper,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = Color.White,
                         )
-                    }
-                } else {
-                    Column(
-                        Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text("צריך גישה למצלמה כדי לאמת.", color = Palette.Paper)
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = onRequestPermission) {
-                            Text("אשר גישה", color = Palette.Paper)
-                        }
-                    }
-                }
-
-                when (current) {
-                    is Phase.Verified -> Overlay(title = "הנחת. יום טוב.", body = current.note, unlocked = true)
-                    is Phase.Failed -> Overlay(title = "משהו השתבש.", body = current.message, unlocked = false)
-                    Phase.Scanning -> Unit
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            when (current) {
-                Phase.Scanning -> {
-                    if (tip >= 0 && bands < WindingDetector.REQUIRED) {
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            "טיפ: ${TIPS[tip]}",
+                            if (tip >= 0 && bands < WindingDetector.REQUIRED) "${TIPS[tip]} האימות קורה לבד." else "האימות קורה לבד, בלי לחיצה.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Palette.GoldText,
+                            color = CamGrey,
                         )
-                        Spacer(Modifier.height(6.dp))
-                    }
-                    Row(Modifier.fillMaxWidth()) {
-                        TextButton(onClick = {
-                            facing = if (facing == CameraSelector.LENS_FACING_BACK)
-                                CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
-                        }) {
-                            Text("החלף מצלמה", color = Palette.Muted)
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .background(CamPill)
+                                    .clickable(role = Role.Button) {
+                                        torch = false
+                                        facing = if (facing == CameraSelector.LENS_FACING_BACK)
+                                            CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
+                                    }
+                                    .padding(horizontal = 24.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(painterResource(R.drawable.ic_flip_camera), contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(10.dp))
+                                Text("החלף מצלמה", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            }
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = onClose) {
+                                Text("חזרה", style = MaterialTheme.typography.labelLarge, color = CamGrey)
+                            }
                         }
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = onClose) {
-                            Text("חזרה", color = Palette.Muted)
-                        }
                     }
-                }
-                is Phase.Verified -> InkButton("המשך", onClose, Modifier.fillMaxWidth())
-                is Phase.Failed -> {
-                    InkButton("חזרה", onClose, Modifier.fillMaxWidth())
+                    is Phase.Verified -> GoldButton("המשך", onClose, Modifier.fillMaxWidth(), background = Palette.Cream, content = Palette.Teal)
+                    is Phase.Failed -> GoldButton("חזרה", onClose, Modifier.fillMaxWidth(), background = Palette.Cream, content = Palette.Ink)
                 }
             }
-            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    /** A winding marker on the frame: an empty ring, or a blue disc with its number once seen. */
+    @Composable
+    private fun Marker(index: Int, on: Boolean) {
+        Box(
+            Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(if (on) CamBlue else Color.Transparent)
+                .border(2.dp, if (on) CamBlue else Color.White.copy(alpha = 0.8f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (on) Text("$index", style = MaterialTheme.typography.labelLarge, color = CamDark)
         }
     }
 
@@ -463,7 +563,7 @@ class VerifyActivity : ComponentActivity() {
                         .also { it.setAnalyzer(analysisExecutor) { image -> onFrame(image) } }
                     val selector = CameraSelector.Builder().requireLensFacing(facing).build()
                     p.unbindAll()
-                    p.bindToLifecycle(this@VerifyActivity, selector, preview, analysis)
+                    cameraRef.value = p.bindToLifecycle(this@VerifyActivity, selector, preview, analysis)
                 } catch (e: Exception) {
                     phase.value = Phase.Failed("המצלמה לא נפתחה. סגור אפליקציות אחרות שמשתמשות במצלמה, ונסה שוב.")
                 }
