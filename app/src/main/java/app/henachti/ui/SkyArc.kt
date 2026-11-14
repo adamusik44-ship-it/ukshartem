@@ -45,9 +45,11 @@ fun SkyArc(start: Long, end: Long, now: Long, modifier: Modifier = Modifier, moo
     Canvas(modifier) {
         val sun = 13.dp.toPx() // margin unit: leaves room for the sun's rays at the ends and the top
         val cx = size.width / 2f
-        val cy = size.height - 4.dp.toPx()
+        // the horizon sits high enough that a sun or moon resting at either end stays inside the
+        // drawing and never covers the misheyakir and sunset times printed under it
+        val cy = size.height - 20.dp.toPx()
         val rx = size.width / 2f - sun * 1.6f
-        val ry = size.height - sun * 2.6f
+        val ry = cy - 28.dp.toPx()
         val topLeft = Offset(cx - rx, cy - ry)
         val oval = Size(rx * 2f, ry * 2f)
         fun at(f: Float): Offset {

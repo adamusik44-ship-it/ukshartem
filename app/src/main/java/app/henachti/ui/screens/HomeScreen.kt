@@ -221,7 +221,7 @@ private fun DayPanel(
             Column(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 10.dp),
+                    .padding(bottom = 26.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (state is LockState.Snoozed) SnoozeClock(state.until)
