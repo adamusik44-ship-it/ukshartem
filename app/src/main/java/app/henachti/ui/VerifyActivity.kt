@@ -19,6 +19,9 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +71,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -85,7 +94,9 @@ import app.henachti.widget.StatusWidget
 import kotlinx.coroutines.delay
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.max
 
+private val MarkerSize = 26.dp
 private val CamDark = Color(0xFF181512)
 private val CamSheet = Color(0xFF211E1B)
 private val CamPill = Color(0xFF34302C)
@@ -99,7 +110,7 @@ private val TIPS = listOf(
     "סובב את היד לאור. צל חזק מסתיר כריכות.",
     "הרם את השרוול מעל המרפק.",
     "החזק את היד יציבה שנייה או שתיים.",
-    "האמה לרוחב המסגרת, והרצועות חוצות אותה.",
+    "האמה לאורך המסגרת, כף היד למעלה, והרצועות חוצות אותה.",
 )
 
 /**
@@ -118,6 +129,10 @@ class VerifyActivity : ComponentActivity() {
     private val recent = ArrayDeque<Boolean>()
     private val recentBands = ArrayDeque<Int>()
     private val torchOn = mutableStateOf(false)
+
+    /** The on-screen frame in window pixels (left, top, right, bottom) and the window size; null until laid out. */
+    @Volatile
+    private var guide: FloatArray? = null
     private val cameraRef = mutableStateOf<Camera?>(null)
     private var bestShown = 0
     private var lastAnalysedAt = 0L
@@ -176,19 +191,66 @@ class VerifyActivity : ComponentActivity() {
             lastAnalysedAt = now
             val raw = image.toBitmap()
             val rotation = image.imageInfo.rotationDegrees
-            val upright = if (rotation != 0) {
-                Bitmap.createBitmap(
-                    raw, 0, 0, raw.width, raw.height,
-                    Matrix().apply { postRotate(rotation.toFloat()) }, false
+            val g = guide
+            val bands = if (g != null) {
+                WindingDetector.readFrame(
+                    frameCrop(raw, rotation, g, mirror = lensFacing.value == CameraSelector.LENS_FACING_FRONT)
                 )
-            } else raw
-            val reading = WindingDetector.read(upright)
-            runOnUiThread { handleReading(reading.bands) }
+            } else {
+                val upright = if (rotation != 0) {
+                    Bitmap.createBitmap(
+                        raw, 0, 0, raw.width, raw.height,
+                        Matrix().apply { postRotate(rotation.toFloat()) }, false
+                    )
+                } else raw
+                WindingDetector.read(upright).bands
+            }
+            runOnUiThread { handleReading(bands) }
         } catch (e: Exception) {
             // skip this frame
         } finally {
             image.close()
         }
+    }
+
+    /**
+     * Cuts the camera image down to what the on-screen frame covers. The preview fills the screen
+     * (FILL_CENTER) from a 4:3 stream, like the analysis one, so a point on screen maps to the
+     * upright analysis image by one scale and one offset. The rectangle is then cut from the
+     * unrotated buffer and turned upright.
+     */
+    private fun frameCrop(raw: Bitmap, rotation: Int, g: FloatArray, mirror: Boolean): Bitmap {
+        val rw = raw.width
+        val rh = raw.height
+        val turned = rotation == 90 || rotation == 270
+        val iw = if (turned) rh else rw
+        val ih = if (turned) rw else rh
+        val vw = g[4]
+        val vh = g[5]
+        val scale = max(vw / iw, vh / ih)
+        val offX = (vw - iw * scale) / 2f
+        val offY = (vh - ih * scale) / 2f
+        var l = (g[0] - offX) / scale
+        var r = (g[2] - offX) / scale
+        if (mirror) {
+            val nl = iw - r
+            r = iw - l
+            l = nl
+        }
+        val ul = l.toInt().coerceIn(0, iw - 2)
+        val ur = r.toInt().coerceIn(ul + 2, iw)
+        val ut = ((g[1] - offY) / scale).toInt().coerceIn(0, ih - 2)
+        val ub = ((g[3] - offY) / scale).toInt().coerceIn(ut + 2, ih)
+        val (x0, y0, x1, y1) = when (rotation) {
+            90 -> intArrayOf(ut, rh - ur, ub, rh - ul)
+            180 -> intArrayOf(rw - ur, rh - ub, rw - ul, rh - ut)
+            270 -> intArrayOf(rw - ub, ul, rw - ut, ur)
+            else -> intArrayOf(ul, ut, ur, ub)
+        }
+        return Bitmap.createBitmap(
+            raw, x0, y0, x1 - x0, y1 - y0,
+            Matrix().apply { postRotate(rotation.toFloat()) }, false
+        )
     }
 
     private fun handleReading(bands: Int) {
@@ -236,6 +298,9 @@ class VerifyActivity : ComponentActivity() {
         val bands = liveBands.intValue
         val current = phase.value
         var tip by remember { mutableIntStateOf(-1) }
+        val density = LocalDensity.current
+        var topPx by remember { mutableIntStateOf(0) }
+        var sheetPx by remember { mutableIntStateOf(0) }
 
         // after 10 seconds, one tip at a time, changing every few seconds
         LaunchedEffect(Unit) {
@@ -273,32 +338,57 @@ class VerifyActivity : ComponentActivity() {
                 }
             }
 
-            // the frame the detector looks at, with one numbered marker per winding
+            // the frame the detector reads, upright like the phone: the forearm lies along it,
+            // the hand at the top. One numbered marker per winding beside it.
             if (hasPermission && current is Phase.Scanning) {
                 Box(
                     Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp)
-                        .fillMaxHeight(0.30f)
-                        .border(2.5.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(28.dp))
+                        .fillMaxSize()
+                        .padding(
+                            top = with(density) { topPx.toDp() } + 14.dp,
+                            bottom = with(density) { sheetPx.toDp() } + 14.dp,
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (bands == 0) {
-                        ArmGuide(
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // as wide as the marker column, so the frame stays in the middle of the screen
+                        Spacer(Modifier.width(MarkerSize + 12.dp))
+                        Box(
                             Modifier
-                                .fillMaxSize()
-                                .padding(18.dp)
-                        )
-                    }
-                    Row(
-                        Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .padding(horizontal = 26.dp, vertical = 16.dp)
-                            .clearAndSetSemantics { contentDescription = "זוהו $bands מתוך ${WindingDetector.REQUIRED} כריכות" },
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        repeat(WindingDetector.REQUIRED) { i -> Marker(i + 1, i < bands) }
+                                .fillMaxHeight()
+                                .aspectRatio(0.44f, matchHeightConstraintsFirst = true)
+                                .border(
+                                    2.5.dp,
+                                    if (bands >= WindingDetector.REQUIRED) Palette.Gold else Color.White.copy(alpha = 0.85f),
+                                    RoundedCornerShape(28.dp),
+                                )
+                                .onGloballyPositioned { c ->
+                                    val b = c.boundsInRoot()
+                                    val root = c.findRootCoordinates().size
+                                    guide = floatArrayOf(
+                                        b.left, b.top, b.right, b.bottom,
+                                        root.width.toFloat(), root.height.toFloat(),
+                                    )
+                                }
+                        ) {
+                            if (bands == 0) {
+                                ArmGuide(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(14.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(
+                            Modifier
+                                .fillMaxHeight()
+                                .padding(vertical = 10.dp)
+                                .clearAndSetSemantics { contentDescription = "זוהו $bands מתוך ${WindingDetector.REQUIRED} כריכות" },
+                            verticalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            repeat(WindingDetector.REQUIRED) { i -> Marker(i + 1, i < bands) }
+                        }
                     }
                 }
             }
@@ -307,6 +397,7 @@ class VerifyActivity : ComponentActivity() {
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .onSizeChanged { topPx = it.height }
                     .background(CamDark.copy(alpha = 0.78f))
                     .statusBarsPadding()
                     .padding(start = 8.dp, end = 8.dp, bottom = 16.dp)
@@ -336,7 +427,7 @@ class VerifyActivity : ComponentActivity() {
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
                 Text(
-                    "מהמרפק עד כף היד. אור טוב, בלי שרוול.",
+                    "לאורך המסגרת: כף היד למעלה, המרפק למטה. אור טוב, בלי שרוול.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = CamGrey,
                     modifier = Modifier.padding(horizontal = 12.dp),
@@ -354,6 +445,7 @@ class VerifyActivity : ComponentActivity() {
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
+                    .onSizeChanged { sheetPx = it.height }
                     .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
                     .background(CamSheet)
                     .navigationBarsPadding()
@@ -425,7 +517,7 @@ class VerifyActivity : ComponentActivity() {
     private fun Marker(index: Int, on: Boolean) {
         Box(
             Modifier
-                .size(30.dp)
+                .size(MarkerSize)
                 .clip(CircleShape)
                 .background(if (on) CamBlue else Color.Transparent)
                 .border(2.dp, if (on) CamBlue else Color.White.copy(alpha = 0.8f), CircleShape),
@@ -506,33 +598,35 @@ class VerifyActivity : ComponentActivity() {
         Canvas(modifier) {
             val w = size.width
             val h = size.height
-            val cy = h / 2f
-            val elbow = h * 0.30f
-            val wrist = h * 0.19f
+            val cx = w / 2f
+            val elbow = w * 0.36f
+            val wrist = w * 0.23f
+            val wristY = h * 0.21f
+            val elbowY = h * 0.98f
             val arm = Path().apply {
-                moveTo(w * 0.04f, cy - elbow)
-                cubicTo(w * 0.35f, cy - elbow * 1.05f, w * 0.62f, cy - wrist * 1.15f, w * 0.80f, cy - wrist)
-                lineTo(w * 0.80f, cy + wrist)
-                cubicTo(w * 0.62f, cy + wrist * 1.15f, w * 0.35f, cy + elbow * 1.05f, w * 0.04f, cy + elbow)
+                moveTo(cx - wrist, wristY)
+                cubicTo(cx - wrist * 1.15f, h * 0.40f, cx - elbow * 1.05f, h * 0.68f, cx - elbow, elbowY)
+                lineTo(cx + elbow, elbowY)
+                cubicTo(cx + elbow * 1.05f, h * 0.68f, cx + wrist * 1.15f, h * 0.40f, cx + wrist, wristY)
                 close()
             }
             val dash = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 8.dp.toPx()), 0f)
             val line = Palette.Paper.copy(alpha = 0.75f)
             drawPath(arm, line, style = Stroke(width = 2.dp.toPx(), pathEffect = dash, cap = StrokeCap.Round))
-            // the hand: a dashed rounded end past the wrist
+            // the hand: a dashed rounded end above the wrist
             drawOval(
                 line,
-                topLeft = Offset(w * 0.80f, cy - wrist * 1.25f),
-                size = Size(w * 0.16f, wrist * 2.5f),
+                topLeft = Offset(cx - wrist * 1.25f, h * 0.02f),
+                size = Size(wrist * 2.5f, wristY - h * 0.02f),
                 style = Stroke(width = 2.dp.toPx(), pathEffect = dash),
             )
             // where the windings go, as faint slanted marks
             val mark = Palette.Gold.copy(alpha = 0.55f)
             for (k in 0 until 7) {
-                val x = w * (0.16f + k * 0.085f)
-                val half = elbow - (elbow - wrist) * (x / (w * 0.80f))
+                val y = h * (0.30f + k * 0.09f)
+                val half = wrist + (elbow - wrist) * ((y - wristY) / (elbowY - wristY))
                 drawLine(
-                    mark, Offset(x - 6.dp.toPx(), cy + half * 0.8f), Offset(x + 6.dp.toPx(), cy - half * 0.8f),
+                    mark, Offset(cx - half * 0.8f, y + 6.dp.toPx()), Offset(cx + half * 0.8f, y - 6.dp.toPx()),
                     strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round,
                 )
             }
@@ -554,10 +648,23 @@ class VerifyActivity : ComponentActivity() {
                 try {
                     val p = future.get()
                     provider = p
-                    val preview = Preview.Builder().build().also {
+                    val fourThree = ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                        .build()
+                    val analysisSize = ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                        .setResolutionStrategy(
+                            ResolutionStrategy(
+                                android.util.Size(1280, 960),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                            )
+                        )
+                        .build()
+                    val preview = Preview.Builder().setResolutionSelector(fourThree).build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
                     }
                     val analysis = ImageAnalysis.Builder()
+                        .setResolutionSelector(analysisSize)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                         .build()

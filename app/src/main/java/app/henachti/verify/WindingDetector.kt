@@ -7,8 +7,10 @@ import kotlin.math.min
 
 /**
  * Looks for the tefillin strap wound around the forearm: dark, unsaturated bands crossing the
- * arm with skin between them. Works on the live preview, inside the on-screen guide region,
- * in either orientation (arm lying across the frame, or along it). No models, no network.
+ * arm with skin between them. No models, no network.
+ *
+ * [readFrame] reads exactly what the on-screen frame covers (the normal path). [read] reads the
+ * whole camera image in either orientation, only until the frame has been laid out.
  */
 object WindingDetector {
 
@@ -17,22 +19,58 @@ object WindingDetector {
 
     data class Reading(val bands: Int, val horizontal: Boolean)
 
+    /**
+     * Strips across the frame, as fractions of its width. The arm is usually narrower than the
+     * frame and not always in its middle, so a strip that sits on the arm alone reads cleanly.
+     * The best strip counts.
+     */
+    private val STRIPS = listOf(0f to 1f, 0.15f to 0.85f, 0.27f to 0.73f, 0f to 0.6f, 0.4f to 1f)
+
+    /** A crop that is exactly the on-screen frame: the forearm lies along its long side. */
+    fun readFrame(bmp: Bitmap): Int {
+        val px = Pixels(bmp)
+        val alongX = px.w > px.h
+        val axisLen = if (alongX) px.w else px.h
+        val crossLen = if (alongX) px.h else px.w
+        val a0 = (axisLen * 0.02f).toInt()
+        val a1 = axisLen - a0
+        var best = 0
+        for ((from, to) in STRIPS) {
+            val c0 = (crossLen * from).toInt()
+            val c1 = (crossLen * to).toInt()
+            val n = if (alongX) profileBands(px, a0, a1, c0, c1, alongX = true)
+            else profileBands(px, c0, c1, a0, a1, alongX = false)
+            best = max(best, n)
+        }
+        return best
+    }
+
+    /** The whole upright camera image, arm across or along it. */
     fun read(bmp: Bitmap): Reading {
-        val w = bmp.width
-        val h = bmp.height
+        val px = Pixels(bmp)
+        val w = px.w
+        val h = px.h
         val horizontal = profileBands(
-            bmp,
+            px,
             x0 = (w * 0.06f).toInt(), x1 = (w * 0.94f).toInt(),
             y0 = (h * 0.30f).toInt(), y1 = (h * 0.70f).toInt(),
             alongX = true,
         )
         val vertical = profileBands(
-            bmp,
+            px,
             x0 = (w * 0.30f).toInt(), x1 = (w * 0.70f).toInt(),
             y0 = (h * 0.06f).toInt(), y1 = (h * 0.94f).toInt(),
             alongX = false,
         )
         return if (horizontal >= vertical) Reading(horizontal, true) else Reading(vertical, false)
+    }
+
+    /** The bitmap's pixels, read once. */
+    private class Pixels(bmp: Bitmap) {
+        val w = bmp.width
+        val h = bmp.height
+        private val data = IntArray(w * h).also { bmp.getPixels(it, 0, w, 0, 0, w, h) }
+        fun at(x: Int, y: Int): Int = data[y * w + x]
     }
 
     private fun lum(c: Int): Float =
@@ -44,7 +82,7 @@ object WindingDetector {
      * Slices the region along one axis. Each slice is DARK (mostly strap), SKIN (mostly warm,
      * bright skin) or OTHER. A winding is a DARK run of plausible width with SKIN on both sides.
      */
-    private fun profileBands(bmp: Bitmap, x0: Int, x1: Int, y0: Int, y1: Int, alongX: Boolean): Int {
+    private fun profileBands(px: Pixels, x0: Int, x1: Int, y0: Int, y1: Int, alongX: Boolean): Int {
         val axisLen = if (alongX) x1 - x0 else y1 - y0
         val crossLen = if (alongX) y1 - y0 else x1 - x0
         if (axisLen < 40 || crossLen < 20) return 0
@@ -63,8 +101,8 @@ object WindingDetector {
             while (c < crossLen && k < cap) {
                 val x = if (alongX) x0 + a else x0 + c
                 val y = if (alongX) y0 + c else y0 + a
-                if (x in 0 until bmp.width && y in 0 until bmp.height) {
-                    val p = bmp.getPixel(x, y)
+                if (x in 0 until px.w && y in 0 until px.h) {
+                    val p = px.at(x, y)
                     lumRow[k] = lum(p)
                     warmRow[k] = Color.red(p) >= Color.blue(p)
                     k++
